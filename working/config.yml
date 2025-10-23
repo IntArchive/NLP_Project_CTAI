@@ -1,0 +1,4 @@
+train_dataset_path: ".\\data\\train.csv" 
+val_dataset_path: ".\\data\\val.csv"
+num_workers: 2
+batch_size: 16
