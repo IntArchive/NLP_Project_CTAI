@@ -85,8 +85,8 @@ class QwenB(nn.Module):
             return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
 
 
-    def get_detailed_instruct(task_description: str, query: str) -> str:
-        return f'Instruct: {task_description}\nQuery:{query}'
+    # def get_detailed_instruct(task_description: str, query: str) -> str:
+    #     return f'Instruct: {task_description}\nQuery:{query}'
     
 class MyModel(nn.Module):
     def __init__(self, input_dim=1024, hidden=(512, 256, 128), num_classes=5, p_drop=0.2):
@@ -239,7 +239,7 @@ def main():
     model = QwenB()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
-    
+
 
 
 
