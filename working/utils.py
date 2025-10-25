@@ -151,13 +151,38 @@ def train(config, train_loader, model, decoder, criterion, optimizer, device, ac
 
     optimizer.zero_grad()  # Ensure gradients are cleared at the start
 
-    for batch_idx, (inputs, labels) in enumerate(train_loader):
-        inputs, labels = inputs.to(device), labels.to(device)
+    for batch_idx, batch in enumerate(train_loader):
+
+        # loader expected to return (rating, text)
+        if isinstance(batch, (list, tuple)) and len(batch) == 2:
+            labels, texts = batch
+        else:
+            # fallback: dict-like batch
+            labels = batch.get('rating') if hasattr(batch, 'get') else None
+            texts = batch.get('review') if hasattr(batch, 'get') else None
+
+        # convert labels to tensor and move to device
+        if not torch.is_tensor(labels):
+            labels = torch.tensor(labels, dtype=torch.long)
+        labels = labels.to(device)
+
+        # convert ratings to 0-based if needed
+        if labels.min() >= 1:
+            labels = labels - 1
+
+        # ensure texts is a list[str]
+        if isinstance(texts, torch.Tensor):
+            try:
+                texts = texts.tolist()
+            except Exception:
+                texts = [str(t) for t in texts]
+        elif not isinstance(texts, (list, tuple)):
+            texts = [str(texts)]
 
         # Forward pass
-        outputs = model(inputs)
+        outputs = model(texts)
         loss = criterion(outputs, labels) / accumulation_steps  # Scale loss for accumulation
-        losses.update(loss.item() * accumulation_steps, inputs.size(0))  # Track loss
+        losses.update(loss.item() * accumulation_steps, texts.size(0))  # Track loss
 
         # Backward pass
         loss.backward()
@@ -170,8 +195,8 @@ def train(config, train_loader, model, decoder, criterion, optimizer, device, ac
         # Calculate accuracy
         preds = outputs.argmax(dim=1)
         correct = (preds == labels).sum().item()
-        acc = correct / inputs.size(0)
-        acc_meter.update(acc, inputs.size(0))
+        acc = correct / texts.size(0)
+        acc_meter.update(acc, texts.size(0))
 
     if device == 'cuda':
         torch.cuda.empty_cache()
