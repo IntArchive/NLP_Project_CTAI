@@ -182,6 +182,7 @@ def train(config, train_loader, model, decoder, criterion, optimizer, device, ac
         # Forward pass
         outputs = model(texts)
         loss = criterion(outputs, labels) / accumulation_steps  # Scale loss for accumulation
+        loss = loss.mean()
         losses.update(loss.item() * accumulation_steps, texts.size(0))  # Track loss
 
         # Backward pass
