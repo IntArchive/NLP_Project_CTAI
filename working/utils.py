@@ -197,8 +197,8 @@ def train(config, train_loader, model, decoder, criterion, optimizer, device, ac
         # Calculate accuracy
         preds = outputs.argmax(dim=1)
         correct = (preds == labels).sum().item()
-        acc = correct / texts.size(0)
-        acc_meter.update(acc, texts.size(0))
+        acc = correct / batch_size
+        acc_meter.update(acc, batch_size)
 
     if device == 'cuda':
         torch.cuda.empty_cache()
