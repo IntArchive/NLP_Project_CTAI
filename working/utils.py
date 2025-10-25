@@ -193,6 +193,7 @@ def train(config,
                     # ensure logits on correct device
                     logits = logits.to(device)
                     loss = criterion(logits, labels)
+                    loss = loss.mean()
 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)

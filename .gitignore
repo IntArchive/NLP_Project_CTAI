@@ -11,3 +11,6 @@ wheels/
 
 # Temporary file
 working/temp.ipynb
+
+# VSCode settings
+.vscode/
