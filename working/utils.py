@@ -113,6 +113,19 @@ class MyModel(nn.Module):
         x = self.mlp(x)
         return self.head(x)  # logits (B,5)
 
+def AmazonPadder(batch):
+    ratings = [batch[i][0] for i in range(len(batch))]
+    reviews = [batch[i][1] for i in range(len(batch))]
+    
+
+    reviews = torch.nn.utils.rnn.pad_sequence(
+        reviews, batch_first=True, padding_value=0)
+
+    ratings = torch.nn.utils.rnn.pad_sequence(
+        ratings, batch_first=True, padding_value=0)
+
+    return ratings, reviews 
+
 def train(config,
           loader,
           model,

@@ -6,7 +6,7 @@ import numpy as np
 from nltk.cluster import KMeansClusterer
 from sentence_transformers import SentenceTransformer
 
-from utils import AmazonDataset, MyModel, train
+from utils import AmazonDataset, AmazonPadder, MyModel, train
 import torch.nn as nn
 import torch
 
@@ -17,11 +17,13 @@ def main():
     train_dataset = AmazonDataset(config, mode='train')
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=config.batch_size,
+                                               collate_fn=AmazonPadder,
                                                num_workers=config.num_workers)
 
     val_dataset = AmazonDataset(config, mode='val')
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=config.batch_size,
+                                             collate_fn=AmazonPadder,
                                              num_workers=config.num_workers)
 
     
