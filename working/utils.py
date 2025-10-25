@@ -17,7 +17,7 @@ class AmazonDataset(Dataset):
         assert mode in ['train', 'val']
         dataset_path = config.train_dataset_path if mode == 'train' else config.val_dataset_path
 
-        self.dataframe = pd.read_csv(dataset_path).reset_index(drop=True)
+        self.dataframe = pd.read_csv(dataset_path).reset_index(drop=True).iloc[:20,:]
         self.index_dict = self.dataframe.to_dict('index')
         self.mode = mode
         print(f'DATASET SIZE : {len(self.dataframe)}')
@@ -325,6 +325,8 @@ def main():
     model = QwenB()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
+
+    train(config, loader, model, decoder, criterion, optimizer, device)
 
 
 
