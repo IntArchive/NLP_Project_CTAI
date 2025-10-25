@@ -31,7 +31,7 @@ def main():
     params = model.parameters()
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, params),
                                  lr=config.learning_rate)
-    criterion = nn.BCELoss(reduction='none')
+    criterion = nn.CrossEntropyLoss(reduction='none')
 
     best_val_roc = 0
     for i in range(config.num_epochs):
