@@ -17,13 +17,11 @@ def main():
     train_dataset = AmazonDataset(config, mode='train')
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=config.batch_size,
-                                               collate_fn=AmazonPadder,
                                                num_workers=config.num_workers)
 
     val_dataset = AmazonDataset(config, mode='val')
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=config.batch_size,
-                                             collate_fn=AmazonPadder,
                                              num_workers=config.num_workers)
 
     

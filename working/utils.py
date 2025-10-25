@@ -198,6 +198,7 @@ def train(config,
             elif not isinstance(texts, (list, tuple)):
                 texts = [str(texts)]
 
+            accumulation_steps = 4
             optimizer.zero_grad()
             try:
                 with torch.cuda.amp.autocast(enabled=use_cuda):
@@ -211,8 +212,9 @@ def train(config,
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(train_module.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
+                if (_ + 1) % accumulation_steps == 0:
+                    scaler.step(optimizer)
+                    scaler.update()
             except RuntimeError as e:
                 if 'out of memory' in str(e).lower():
                     print("WARNING: OOM encountered, skipping batch.")
