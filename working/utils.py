@@ -143,167 +143,64 @@ from tqdm import tqdm
 import gc
 import time
 
-def train(config, train_loader, model, decoder, criterion, optimizer, device, accumulation_steps=4):
-    model.train()
-    losses = AverageMeter()
-    acc_meter = AverageMeter()
-    start_time = time.time()
-
-    optimizer.zero_grad()  # Ensure gradients are cleared at the start
-
-    for batch_idx, batch in enumerate(train_loader):
-
-        # loader expected to return (rating, text)
-        if isinstance(batch, (list, tuple)) and len(batch) == 2:
-            labels, texts = batch
-        else:
-            # fallback: dict-like batch
-            labels = batch.get('rating') if hasattr(batch, 'get') else None
-            texts = batch.get('review') if hasattr(batch, 'get') else None
-
-        # convert labels to tensor and move to device
-        if not torch.is_tensor(labels):
-            labels = torch.tensor(labels, dtype=torch.long)
-        labels = labels.to(device)
-
-        # convert ratings to 0-based if needed
-        if labels.min() >= 1:
-            labels = labels - 1
-
-        # ensure texts is a list[str]
-        if isinstance(texts, torch.Tensor):
-            try:
-                texts = texts.tolist()
-            except Exception:
-                texts = [str(t) for t in texts]
-        elif not isinstance(texts, (list, tuple)):
-            texts = [str(texts)]
-
-        # Forward pass
-        outputs = model(texts)
-        loss = criterion(outputs, labels) / accumulation_steps  # Scale loss for accumulation
-        loss = loss.mean()
-        batch_size = labels.size(0)
-        losses.update(loss.item() * accumulation_steps, batch_size)  # Track loss
-
-        # Backward pass
-        loss.backward()
-
-        # Perform optimizer step after accumulating gradients
-        if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
-            optimizer.step()
-            optimizer.zero_grad()  # Clear gradients after the step
-
-        # Calculate accuracy
-        preds = outputs.argmax(dim=1)
-        correct = (preds == labels).sum().item()
-        acc = correct / batch_size
-        acc_meter.update(acc, batch_size)
-
-    if device == 'cuda':
-        torch.cuda.empty_cache()
-    gc.collect()
-
-    elapsed = time.time() - start_time
-    print(f"Train Loss: {losses.avg:.4f}  Acc: {acc_meter.avg:.4f}  Time: {elapsed:.1f}s")
-
-    return losses.avg
-
-# def train(config,
-#           loader,
-#           model,
-#           decoder,
-#           criterion,
-#           optimizer,
-#           device):
-    
-
-    
-
-#     # Ensure criterion uses CrossEntropyLoss if not provided
-#     if criterion is None:
-#         criterion = nn.CrossEntropyLoss()
-
-#     # choose which module to train (decoder or full model)
-#     train_module = decoder if decoder is not None else model
-#     train_module.train()
-
-#     model.to(device)
-#     train_module.to(device)
-
-#     # mixed precision scaler if using CUDA
-#     use_cuda = device.startswith('cuda') and torch.cuda.is_available()
-#     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
-
+# def train(config, train_loader, model, decoder, criterion, optimizer, device, accumulation_steps=4):
+#     model.train()
 #     losses = AverageMeter()
 #     acc_meter = AverageMeter()
-
 #     start_time = time.time()
-#     with torch.enable_grad():
-#         for _, batch in tqdm(enumerate(loader), total=len(loader)):
-#             # loader expected to return (rating, text)
-#             if isinstance(batch, (list, tuple)) and len(batch) == 2:
-#                 labels, texts = batch
-#             else:
-#                 # fallback: dict-like batch
-#                 labels = batch.get('rating') if hasattr(batch, 'get') else None
-#                 texts = batch.get('review') if hasattr(batch, 'get') else None
 
-#             # convert labels to tensor and move to device
-#             if not torch.is_tensor(labels):
-#                 labels = torch.tensor(labels, dtype=torch.long)
-#             labels = labels.to(device)
+#     optimizer.zero_grad()  # Ensure gradients are cleared at the start
 
-#             # convert ratings to 0-based if needed
-#             if labels.min() >= 1:
-#                 labels = labels - 1
+#     for batch_idx, batch in enumerate(train_loader):
 
-#             # ensure texts is a list[str]
-#             if isinstance(texts, torch.Tensor):
-#                 try:
-#                     texts = texts.tolist()
-#                 except Exception:
-#                     texts = [str(t) for t in texts]
-#             elif not isinstance(texts, (list, tuple)):
-#                 texts = [str(texts)]
+#         # loader expected to return (rating, text)
+#         if isinstance(batch, (list, tuple)) and len(batch) == 2:
+#             labels, texts = batch
+#         else:
+#             # fallback: dict-like batch
+#             labels = batch.get('rating') if hasattr(batch, 'get') else None
+#             texts = batch.get('review') if hasattr(batch, 'get') else None
 
-#             accumulation_steps = 4
-#             optimizer.zero_grad()
+#         # convert labels to tensor and move to device
+#         if not torch.is_tensor(labels):
+#             labels = torch.tensor(labels, dtype=torch.long)
+#         labels = labels.to(device)
+
+#         # convert ratings to 0-based if needed
+#         if labels.min() >= 1:
+#             labels = labels - 1
+
+#         # ensure texts is a list[str]
+#         if isinstance(texts, torch.Tensor):
 #             try:
-#                 with torch.cuda.amp.autocast(enabled=use_cuda):
-#                     outputs = train_module(texts)
-#                     logits = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-#                     # ensure logits on correct device
-#                     logits = logits.to(device)
-#                     loss = criterion(logits, labels)
-#                     loss = loss.mean()
+#                 texts = texts.tolist()
+#             except Exception:
+#                 texts = [str(t) for t in texts]
+#         elif not isinstance(texts, (list, tuple)):
+#             texts = [str(texts)]
 
-                
-#                 if (_ + 1) % accumulation_steps == 0:
-#                     scaler.scale(loss).backward()
-#                     scaler.unscale_(optimizer)
-#                     torch.nn.utils.clip_grad_norm_(train_module.parameters(), max_norm=1.0)
-#                     scaler.step(optimizer)
-#                     scaler.update()
-#             except RuntimeError as e:
-#                 if 'out of memory' in str(e).lower():
-#                     print("WARNING: OOM encountered, skipping batch.")
-#                     optimizer.zero_grad()
-#                     if use_cuda:
-#                         torch.cuda.empty_cache()
-#                     continue
-#                 else:
-#                     raise
+#         # Forward pass
+#         outputs = model(texts)
+#         loss = criterion(outputs, labels) / accumulation_steps  # Scale loss for accumulation
+#         loss = loss.mean()
+#         batch_size = labels.size(0)
+#         losses.update(loss.item() * accumulation_steps, batch_size)  # Track loss
 
-#             batch_size = labels.size(0)
-#             losses.update(loss.item(), batch_size)
+#         # Backward pass
+#         loss.backward()
 
-#             preds = logits.argmax(dim=1)
-#             correct = (preds == labels).sum().item()
-#             acc = correct / batch_size
-#             acc_meter.update(acc, batch_size)
+#         # Perform optimizer step after accumulating gradients
+#         if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
+#             optimizer.step()
+#             optimizer.zero_grad()  # Clear gradients after the step
 
-#     if use_cuda:
+#         # Calculate accuracy
+#         preds = outputs.argmax(dim=1)
+#         correct = (preds == labels).sum().item()
+#         acc = correct / batch_size
+#         acc_meter.update(acc, batch_size)
+
+#     if device == 'cuda':
 #         torch.cuda.empty_cache()
 #     gc.collect()
 
@@ -311,6 +208,109 @@ def train(config, train_loader, model, decoder, criterion, optimizer, device, ac
 #     print(f"Train Loss: {losses.avg:.4f}  Acc: {acc_meter.avg:.4f}  Time: {elapsed:.1f}s")
 
 #     return losses.avg
+
+def train(config,
+          loader,
+          model,
+          decoder,
+          criterion,
+          optimizer,
+          device):
+    
+
+    
+
+    # Ensure criterion uses CrossEntropyLoss if not provided
+    if criterion is None:
+        criterion = nn.CrossEntropyLoss()
+
+    # choose which module to train (decoder or full model)
+    train_module = decoder if decoder is not None else model
+    train_module.train()
+
+    model.to(device)
+    train_module.to(device)
+
+    # mixed precision scaler if using CUDA
+    use_cuda = device.startswith('cuda') and torch.cuda.is_available()
+    scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
+
+    losses = AverageMeter()
+    acc_meter = AverageMeter()
+
+    start_time = time.time()
+    with torch.enable_grad():
+        for _, batch in tqdm(enumerate(loader), total=len(loader)):
+            # loader expected to return (rating, text)
+            if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                labels, texts = batch
+            else:
+                # fallback: dict-like batch
+                labels = batch.get('rating') if hasattr(batch, 'get') else None
+                texts = batch.get('review') if hasattr(batch, 'get') else None
+
+            # convert labels to tensor and move to device
+            if not torch.is_tensor(labels):
+                labels = torch.tensor(labels, dtype=torch.long)
+            labels = labels.to(device)
+
+            # convert ratings to 0-based if needed
+            if labels.min() >= 1:
+                labels = labels - 1
+
+            # ensure texts is a list[str]
+            if isinstance(texts, torch.Tensor):
+                try:
+                    texts = texts.tolist()
+                except Exception:
+                    texts = [str(t) for t in texts]
+            elif not isinstance(texts, (list, tuple)):
+                texts = [str(texts)]
+
+            accumulation_steps = 4
+            optimizer.zero_grad()
+            try:
+                with torch.cuda.amp.autocast(enabled=use_cuda):
+                    outputs = train_module(texts)
+                    logits = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+                    # ensure logits on correct device
+                    logits = logits.to(device)
+                    loss = criterion(logits, labels)
+                    loss = loss.mean()
+
+                
+                if (_ + 1) % accumulation_steps == 0:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(train_module.parameters(), max_norm=1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+            except RuntimeError as e:
+                if 'out of memory' in str(e).lower():
+                    print("WARNING: OOM encountered, skipping batch.")
+                    optimizer.zero_grad()
+                    if use_cuda:
+                        torch.cuda.empty_cache()
+                    continue
+                else:
+                    raise
+
+            batch_size = labels.size(0)
+            losses.update(loss.item(), batch_size)
+
+            preds = logits.argmax(dim=1)
+            correct = (preds == labels).sum().item()
+            acc = correct / batch_size
+            acc_meter.update(acc, batch_size)
+
+    if use_cuda:
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    elapsed = time.time() - start_time
+    print(f"Train Loss: {losses.avg:.4f}  Acc: {acc_meter.avg:.4f}  Time: {elapsed:.1f}s")
+
+    return losses.avg
 
     
     
