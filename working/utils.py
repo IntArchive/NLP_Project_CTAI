@@ -17,7 +17,7 @@ class AmazonDataset(Dataset):
         assert mode in ['train', 'val']
         dataset_path = config.train_dataset_path if mode == 'train' else config.val_dataset_path
 
-        self.dataframe = pd.read_csv(dataset_path).reset_index(drop=True).iloc[:20,:]
+        self.dataframe = pd.read_csv(dataset_path).reset_index(drop=True).iloc[:200,:]
         self.index_dict = self.dataframe.to_dict('index')
         self.mode = mode
         print(f'DATASET SIZE : {len(self.dataframe)}')
@@ -142,149 +142,116 @@ class AverageMeter:
 from tqdm import tqdm
 import gc
 import time
-
-# def train(config, train_loader, model, decoder, criterion, optimizer, device, accumulation_steps=4):
-#     model.train()
-#     losses = AverageMeter()
-#     acc_meter = AverageMeter()
-#     start_time = time.time()
-
-#     optimizer.zero_grad()  # Ensure gradients are cleared at the start
-
-#     for batch_idx, batch in enumerate(train_loader):
-
-#         # loader expected to return (rating, text)
-#         if isinstance(batch, (list, tuple)) and len(batch) == 2:
-#             labels, texts = batch
-#         else:
-#             # fallback: dict-like batch
-#             labels = batch.get('rating') if hasattr(batch, 'get') else None
-#             texts = batch.get('review') if hasattr(batch, 'get') else None
-
-#         # convert labels to tensor and move to device
-#         if not torch.is_tensor(labels):
-#             labels = torch.tensor(labels, dtype=torch.long)
-#         labels = labels.to(device)
-
-#         # convert ratings to 0-based if needed
-#         if labels.min() >= 1:
-#             labels = labels - 1
-
-#         # ensure texts is a list[str]
-#         if isinstance(texts, torch.Tensor):
-#             try:
-#                 texts = texts.tolist()
-#             except Exception:
-#                 texts = [str(t) for t in texts]
-#         elif not isinstance(texts, (list, tuple)):
-#             texts = [str(texts)]
-
-#         # Forward pass
-#         outputs = model(texts)
-#         loss = criterion(outputs, labels) / accumulation_steps  # Scale loss for accumulation
-#         loss = loss.mean()
-#         batch_size = labels.size(0)
-#         losses.update(loss.item() * accumulation_steps, batch_size)  # Track loss
-
-#         # Backward pass
-#         loss.backward()
-
-#         # Perform optimizer step after accumulating gradients
-#         if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
-#             optimizer.step()
-#             optimizer.zero_grad()  # Clear gradients after the step
-
-#         # Calculate accuracy
-#         preds = outputs.argmax(dim=1)
-#         correct = (preds == labels).sum().item()
-#         acc = correct / batch_size
-#         acc_meter.update(acc, batch_size)
-
-#     if device == 'cuda':
-#         torch.cuda.empty_cache()
-#     gc.collect()
-
-#     elapsed = time.time() - start_time
-#     print(f"Train Loss: {losses.avg:.4f}  Acc: {acc_meter.avg:.4f}  Time: {elapsed:.1f}s")
-
-#     return losses.avg
-
-def train(config,
-          loader,
-          model,
-          decoder,
-          criterion,
-          optimizer,
-          device):
+def calculate_metrics(TP, FP, FN):
+    precisions, recalls, f1s = [], [], []
+    total_tp = sum(TP.values())
+    total_fp = sum(FP.values())
+    total_fn = sum(FN.values())
     
+    # Calculate per-class metrics
+    for c in sorted(set(list(TP.keys()) + list(FP.keys()) + list(FN.keys()))):
+        tp = TP.get(c, 0)
+        fp = FP.get(c, 0)
+        fn = FN.get(c, 0)
+        p = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        r = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * p * r) / (p + r) if (p + r) > 0 else 0.0
+        precisions.append(p)
+        recalls.append(r)
+        f1s.append(f1)
 
-    
+    # Calculate macro averages
+    if len(precisions) == 0:
+        precision = recall = f1 = accuracy = 0.0
+    else:
+        precision = float(sum(precisions) / len(precisions))
+        recall = float(sum(recalls) / len(recalls))
+        f1 = float(sum(f1s) / len(f1s))
+        accuracy = total_tp / (total_tp + total_fp + total_fn) if (total_tp + total_fp + total_fn) > 0 else 0.0
 
-    # Ensure criterion uses CrossEntropyLoss if not provided
-    if criterion is None:
-        criterion = nn.CrossEntropyLoss()
+    return round(accuracy, 3), round(precision, 3), round(recall, 3), round(f1, 3)
 
-    # choose which module to train (decoder or full model)
-    train_module = decoder if decoder is not None else model
-    train_module.train()
+# python
+def train(config, loader, model, decoder, criterion, optimizer, device, accumulation_steps=None):
+    model.train()
+    if decoder is not None:
+        try:
+            decoder.train()
+        except Exception:
+            pass
 
-    model.to(device)
-    train_module.to(device)
+    if accumulation_steps is None:
+        accumulation_steps = getattr(config, "accumulation_steps", 1)
 
-    # mixed precision scaler if using CUDA
-    use_cuda = device.startswith('cuda') and torch.cuda.is_available()
+    use_cuda = device.startswith('cuda')
     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
 
     losses = AverageMeter()
     acc_meter = AverageMeter()
 
+    # dynamic per-class counters
+    TP = {}
+    FP = {}
+    FN = {}
+
     start_time = time.time()
+    optimizer.zero_grad()
     with torch.enable_grad():
-        for _, batch in tqdm(enumerate(loader), total=len(loader)):
-            # loader expected to return (rating, text)
-            if isinstance(batch, (list, tuple)) and len(batch) == 2:
-                labels, texts = batch
+        for idx, batch in enumerate(tqdm(loader, desc="Train")):
+            # --- unpack batch (support dict and tuple/list) ---
+            if isinstance(batch, dict):
+                labels = batch.get('labels')
+                inputs = {k: v for k, v in batch.items() if k != 'labels'}
+                if labels is None:
+                    raise ValueError("Batch dict must contain 'labels' key for training.")
+                labels = labels.to(device)
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                logits = model(**inputs)
             else:
-                # fallback: dict-like batch
-                labels = batch.get('rating') if hasattr(batch, 'get') else None
-                texts = batch.get('review') if hasattr(batch, 'get') else None
+                if isinstance(batch, (list, tuple)):
+                    *input_parts, labels = batch
+                    labels = labels.to(device)
+                    if len(input_parts) == 1:
+                        inputs = input_parts[0].to(device)
+                        logits = model(inputs)
+                    elif len(input_parts) > 1:
+                        input_parts = [t.to(device) for t in input_parts]
+                        logits = model(*input_parts)
+                    else:
+                        raise ValueError("Couldn't unpack batch inputs for training.")
+                else:
+                    raise ValueError("Unexpected batch format in train().")
 
-            # convert labels to tensor and move to device
-            if not torch.is_tensor(labels):
-                labels = torch.tensor(labels, dtype=torch.long)
-            labels = labels.to(device)
+            if isinstance(logits, (list, tuple)):
+                logits = logits[0]
 
-            # convert ratings to 0-based if needed
-            if labels.min() >= 1:
-                labels = labels - 1
-
-            # ensure texts is a list[str]
-            if isinstance(texts, torch.Tensor):
-                try:
-                    texts = texts.tolist()
-                except Exception:
-                    texts = [str(t) for t in texts]
-            elif not isinstance(texts, (list, tuple)):
-                texts = [str(texts)]
-
-            accumulation_steps = 4
-            optimizer.zero_grad()
-            try:
-                with torch.cuda.amp.autocast(enabled=use_cuda):
-                    outputs = train_module(texts)
-                    logits = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                    # ensure logits on correct device
-                    logits = logits.to(device)
-                    loss = criterion(logits, labels)
+            with torch.cuda.amp.autocast(enabled=use_cuda):
+                loss = criterion(logits, labels) if criterion is not None else torch.tensor(0.0, device=labels.device)
+                if loss.ndim != 0:
                     loss = loss.mean()
 
-                
-                if (_ + 1) % accumulation_steps == 0:
-                    scaler.scale(loss).backward()
+            # guard non-finite
+            if not torch.isfinite(loss):
+                print("WARNING: non-finite loss encountered, skipping batch.")
+                optimizer.zero_grad()
+                if use_cuda:
+                    torch.cuda.empty_cache()
+                continue
+
+            loss_for_backprop = loss / accumulation_steps
+
+            try:
+                scaler.scale(loss_for_backprop).backward()
+
+                if (idx + 1) % accumulation_steps == 0 or (idx + 1) == len(loader):
                     scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(train_module.parameters(), max_norm=1.0)
+                    # clip grads safely
+                    params_with_grad = [p for p in model.parameters() if p.grad is not None]
+                    if len(params_with_grad) > 0:
+                        torch.nn.utils.clip_grad_norm_(params_with_grad, max_norm=getattr(config, "grad_clip", 1.0))
                     scaler.step(optimizer)
                     scaler.update()
+                    optimizer.zero_grad()
             except RuntimeError as e:
                 if 'out of memory' in str(e).lower():
                     print("WARNING: OOM encountered, skipping batch.")
@@ -298,20 +265,151 @@ def train(config,
             batch_size = labels.size(0)
             losses.update(loss.item(), batch_size)
 
-            preds = logits.argmax(dim=1)
-            correct = (preds == labels).sum().item()
+            # predictions and update accuracy
+            if logits.dim() == 1 or (logits.dim() == 2 and logits.size(1) == 1):
+                probs = torch.sigmoid(logits.view(-1))
+                preds = (probs > 0.5).long()
+            else:
+                preds = logits.argmax(dim=1)
+
+            correct = (preds.view(-1) == labels.view(-1)).sum().item()
             acc = correct / batch_size
             acc_meter.update(acc, batch_size)
+
+            # update per-class TP/FP/FN
+            pred_flat = preds.view(-1)
+            labels_flat = labels.view(-1)
+            classes = torch.unique(torch.cat([pred_flat, labels_flat], dim=0)).tolist()
+            for c in classes:
+                c = int(c)
+                tp = ((pred_flat == c) & (labels_flat == c)).sum().item()
+                fp = ((pred_flat == c) & (labels_flat != c)).sum().item()
+                fn = ((pred_flat != c) & (labels_flat == c)).sum().item()
+                TP[c] = TP.get(c, 0) + tp
+                FP[c] = FP.get(c, 0) + fp
+                FN[c] = FN.get(c, 0) + fn
 
     if use_cuda:
         torch.cuda.empty_cache()
     gc.collect()
 
+    accuracy, precision, recall, f1 = calculate_metrics(TP, FP, FN)
+    
     elapsed = time.time() - start_time
-    print(f"Train Loss: {losses.avg:.4f}  Acc: {acc_meter.avg:.4f}  Time: {elapsed:.1f}s")
+    print(f"Train Loss: {losses.avg:.4f}  Acc: {accuracy:.4f}  P: {precision:.4f}  R: {recall:.4f}  F1: {f1:.4f}  Time: {elapsed:.1f}s")
 
-    return losses.avg
+    return losses.avg, accuracy, precision, recall, f1
 
+# python
+def validate(config,
+             loader,
+             model,
+             decoder,
+             criterion,
+             device):
+
+    losses = AverageMeter()
+    acc_meter = AverageMeter()
+    TP, FP, FN = {}, {}, {}  # Track per-class metrics
+    start_time = time.time()
+    batch_size = config.batch_size
+
+    model.eval()
+    if decoder is not None:
+        try:
+            decoder.eval()
+        except Exception:
+            pass
+
+    use_cuda = device.startswith('cuda')
+    torch.cuda.empty_cache()
+
+    with torch.no_grad():
+        for batch in loader:
+            # Unpack batch into inputs and labels (support dict, tuple/list, tensor)
+            if isinstance(batch, dict):
+                # assume 'labels' key present
+                labels = batch.get('labels')
+                inputs = {k: v for k, v in batch.items() if k != 'labels'}
+                if labels is None:
+                    raise ValueError("Batch dict must contain 'labels' key for validation.")
+                labels = labels.to(device)
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                logits = model(**inputs)
+            else:
+                # tuple/list: last element is labels
+                if isinstance(batch, (list, tuple)):
+                    *input_parts, labels = batch
+                    labels = labels.to(device)
+                    if len(input_parts) == 1:
+                        inputs = input_parts[0].to(device)
+                        logits = model(inputs)
+                    elif len(input_parts) > 1:
+                        input_parts = [t.to(device) for t in input_parts]
+                        logits = model(*input_parts)
+                    else:
+                        raise ValueError("Couldn't unpack batch inputs for validation.")
+                else:
+                    # single tensor batch: assume (inputs, labels) not followed; cannot handle
+                    raise ValueError("Unexpected batch format in validate().")
+
+            # handle models that return tuples (e.g., (logits, ...))
+            if isinstance(logits, (list, tuple)):
+                logits = logits[0]
+
+            # compute loss if criterion provided
+            if criterion is not None:
+                loss = criterion(logits, labels)
+                # if per-sample loss, reduce to scalar
+                if loss.ndim != 0:
+                    loss = loss.mean()
+            else:
+                loss = torch.tensor(0.0, device=labels.device)
+
+            # guard against non-finite loss
+            if not torch.isfinite(loss):
+                print("WARNING: non-finite loss encountered in validation, skipping batch.")
+                if use_cuda:
+                    torch.cuda.empty_cache()
+                continue
+
+            # predictions -> handle binary vs multiclass
+            if logits.dim() == 1 or logits.size(1) == 1:
+                probs = torch.sigmoid(logits.view(-1))
+                preds = (probs > 0.5).long()
+            else:
+                preds = logits.argmax(dim=1)
+
+            batch_size = labels.size(0)
+            losses.update(loss.item(), batch_size)
+            correct = (preds.view(-1) == labels.view(-1)).sum().item()
+            acc = correct / batch_size if batch_size > 0 else 0.0
+            acc_meter.update(acc, batch_size)
+
+            # Update per-class metrics
+            pred_flat = preds.view(-1)
+            labels_flat = labels.view(-1)
+            classes = torch.unique(torch.cat([pred_flat, labels_flat])).tolist()
+            
+            for c in classes:
+                c = int(c)
+                tp = ((pred_flat == c) & (labels_flat == c)).sum().item()
+                fp = ((pred_flat == c) & (labels_flat != c)).sum().item()
+                fn = ((pred_flat != c) & (labels_flat == c)).sum().item()
+                TP[c] = TP.get(c, 0) + tp
+                FP[c] = FP.get(c, 0) + fp
+                FN[c] = FN.get(c, 0) + fn
+
+    if use_cuda:
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    # Calculate final metrics
+    accuracy, precision, recall, f1 = calculate_metrics(TP, FP, FN)
+    
+    elapsed = time.time() - start_time
+    print(f"Val Loss: {losses.avg:.4f}  Acc: {accuracy:.4f}  P: {precision:.4f}  R: {recall:.4f}  F1: {f1:.4f}  Time: {elapsed:.1f}s")
+    return losses.avg, accuracy, precision, recall, f1
     
     
 def main():

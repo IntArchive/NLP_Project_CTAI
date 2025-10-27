@@ -1,7 +1,7 @@
 train_dataset_path: "./data/train.csv" 
 val_dataset_path: "./data/val.csv"
 num_workers: 2
-batch_size: 16
+batch_size: 2
 device: "cuda"
 learning_rate: 0.001
 num_epochs: 2
