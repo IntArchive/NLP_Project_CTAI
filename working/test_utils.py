@@ -77,3 +77,8 @@ def test_train_runs_with_dict_batches():
     for metric in (accuracy, precision, recall, f1):
         assert isinstance(metric, float)
         assert 0.0 <= metric <= 1.0
+
+if __name__ == "__main__":
+    test_train_runs_with_tuple_batches()
+    test_train_runs_with_dict_batches()
+    print("All tests passed.")

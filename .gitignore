@@ -14,3 +14,4 @@ working/temp.ipynb
 
 # VSCode settings
 .vscode/
+.DS_Store
