@@ -212,8 +212,7 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
                 logits = model(**inputs)
             else:
                 if isinstance(batch, (list, tuple)):
-                    *input_parts, labels = batch
-                    print(labels)
+                    input_parts, labels = batch
                     labels = torch.tensor(labels, dtype=torch.long)
                     
                     labels = labels.to(device)
