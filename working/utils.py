@@ -220,8 +220,8 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
                         inputs = input_parts[0].to(device)
                         logits = model(inputs)
                     elif len(input_parts) > 1:
-                        input_parts = [t.to(device) for t in input_parts]
-                        logits = model(*input_parts)
+                        input_parts = [t for t in input_parts]
+                        logits = model(input_parts)
                     else:
                         raise ValueError("Couldn't unpack batch inputs for training.")
                 else:
