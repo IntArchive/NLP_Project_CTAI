@@ -197,7 +197,7 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
     start_time = time.time()
     optimizer.zero_grad()
     with torch.enable_grad():
-        for idx, batch in enumerate(tqdm(loader, desc="Train")):
+        for idx, batch in enumerate(loader):
             # --- unpack batch (support dict and tuple/list) ---
             if isinstance(batch, dict):
                 labels = batch.get('labels')
@@ -345,7 +345,7 @@ def validate(config,
             else:
                 # tuple/list: last element is labels
                 if isinstance(batch, (list, tuple)):
-                    *input_parts, labels = batch
+                    input_parts, labels = batch
                     labels = torch.tensor(labels, dtype=torch.long)
                     labels = labels.to(device)
                     if len(input_parts) == 1:
