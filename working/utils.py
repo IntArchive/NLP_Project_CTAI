@@ -28,7 +28,7 @@ class AmazonDataset(Dataset):
 
         if self.mode == 'train':
             text = self.add_augs(text)
-        return rating, text
+        return text, rating
 
     def __len__(self):
         return len(self.index_dict)
