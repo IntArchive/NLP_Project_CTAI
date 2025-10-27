@@ -201,6 +201,7 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
             # --- unpack batch (support dict and tuple/list) ---
             if isinstance(batch, dict):
                 labels = batch.get('labels')
+                labels = torch.tensor(labels, dtype=torch.long)
                 inputs = {k: v for k, v in batch.items() if k != 'labels'}
                 if labels is None:
                     raise ValueError("Batch dict must contain 'labels' key for training.")
