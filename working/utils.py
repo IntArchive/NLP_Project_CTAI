@@ -236,12 +236,12 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
                     loss = loss.mean()
 
             # guard non-finite
-            if not torch.isfinite(loss):
-                print("WARNING: non-finite loss encountered, skipping batch.")
-                optimizer.zero_grad()
-                if use_cuda:
-                    torch.cuda.empty_cache()
-                continue
+            # if not torch.isfinite(loss):
+            #     print("WARNING: non-finite loss encountered, skipping batch.")
+            #     optimizer.zero_grad()
+            #     if use_cuda:
+            #         torch.cuda.empty_cache()
+            #     continue
 
             loss_for_backprop = loss / accumulation_steps
 
