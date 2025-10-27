@@ -201,19 +201,21 @@ def train(config, loader, model, decoder, criterion, optimizer, device, accumula
             # --- unpack batch (support dict and tuple/list) ---
             if isinstance(batch, dict):
                 labels = batch.get('labels')
+                print(labels)
                 labels = torch.tensor(labels, dtype=torch.long)
                 inputs = {k: v for k, v in batch.items() if k != 'labels'}
                 if labels is None:
                     raise ValueError("Batch dict must contain 'labels' key for training.")
-                print(labels)
+                
                 labels = labels.to(device)
                 inputs = {k: v.to(device) for k, v in inputs.items()}
                 logits = model(**inputs)
             else:
                 if isinstance(batch, (list, tuple)):
                     *input_parts, labels = batch
-                    labels = torch.tensor(labels, dtype=torch.long)
                     print(labels)
+                    labels = torch.tensor(labels, dtype=torch.long)
+                    
                     labels = labels.to(device)
                     if len(input_parts) == 1:
                         inputs = input_parts[0].to(device)
